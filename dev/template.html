@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<!--
+  보안: 아래 CSP 가 네트워크를 모두 막습니다.
+   - connect-src 'none' : fetch/XHR/WebSocket/전송 비콘 전부 차단
+   - default-src 'none' + font/img/media/frame/worker 차단 : 외부 글꼴·이미지·iframe 불가
+   - script-src/style-src 는 이 파일 안의 코드 해시만 허용 : 파일이 바뀌면 실행되지 않음(주입 방지)
+   - form-action 'none', base-uri 'none'
+  이 파일을 편집기에서 수정·저장하면 해시가 달라져 앱이 멈춥니다. 수정하려면 dev/build.js 로 다시 만드세요.
+-->
+<meta http-equiv="Content-Security-Policy" content="__CSP__">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>개인정보 가명처리 도우미</title>
+<style>__CSS__</style>
+</head>
+<body>
+<div id="bootfail">
+  <b>앱이 시작되지 않았어요.</b><br>
+  이 파일이 수정되었거나 브라우저가 스크립트를 막았을 수 있어요. 받은 원본 <code>index.html</code> 을 다시 열어 주세요.
+</div>
+
+<div id="app" hidden>
+<header class="top">
+  <h1>개인정보 가명처리 도우미</h1>
+  <span class="lock">🔒 이 컴퓨터 안에서만 동작 · 인터넷 불필요</span>
+  <span class="grow"></span>
+  <button class="btn ghost" id="btnClear" type="button">모두 지우기</button>
+</header>
+<nav class="tabs" role="tablist">
+  <button type="button" role="tab" id="tab1" data-tab="1" aria-selected="true">① 불러오기</button>
+  <button type="button" role="tab" id="tab2" data-tab="2" aria-selected="false" aria-disabled="true">② 선택·내보내기</button>
+  <button type="button" role="tab" id="tab3" data-tab="3" aria-selected="false">③ 복원</button>
+</nav>
+
+<main>
+<!-- ============================ ① 불러오기 ============================ -->
+<section id="p1">
+  <div class="card">
+    <h2>엑셀·CSV 파일 불러오기</h2>
+    <p class="muted">파일은 이 창(메모리) 안에서만 읽어요. 어디에도 전송·저장되지 않고, 창을 닫으면 사라져요.</p>
+    <div class="drop" id="drop1" tabindex="0" role="button" aria-label="파일을 끌어다 놓거나 눌러서 선택">
+      <div class="drop-big">여기로 파일을 끌어다 놓으세요</div>
+      <div class="muted">.xlsx · .xls · .csv</div>
+      <button class="btn primary" type="button" id="pick1">파일 선택</button>
+      <input type="file" id="file1" accept=".xlsx,.xls,.xlsm,.csv,.tsv" hidden>
+    </div>
+  </div>
+  <div id="loaded" hidden></div>
+</section>
+
+<!-- ============================ ② 선택·내보내기 ============================ -->
+<section id="p2" hidden>
+  <div id="recBanner"></div>
+
+  <div class="card">
+    <h2>1) 가릴 열 정하기</h2>
+    <p class="muted">열마다 <b>유지</b>(그대로) · <b>토큰화</b>(가명으로 바꿈) · <b>삭제</b>(내보내지 않음)를 고르세요. 접두어는 토큰 이름이에요. (예: 이름 → <code>[[이름_001]]</code>)</p>
+    <div class="tablewrap"><table class="coltable" id="colTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>2) 원본과 결과 나란히 보기 <span class="muted small">— 열 머리글·행 번호·칸을 눌러 선택하면 일부만 따로 바꿀 수 있어요</span></h2>
+    <div class="selbar" id="selbar"></div>
+    <div class="split">
+      <div><h3>원본 (이 화면에서만 보여요)</h3><div class="gridwrap" id="gridWrap"></div></div>
+      <div><h3>AI에 보낼 결과</h3><div class="gridwrap" id="prevWrap"></div></div>
+    </div>
+    <div class="legend">
+      <span><i class="lg-tok"></i>토큰으로 바뀐 칸</span>
+      <span><i class="lg-crs"></i>문장 속에서 함께 바뀐 칸</span>
+      <span><i class="lg-del"></i>삭제되는 열</span>
+      <span><i class="lg-wrn"></i>전화번호·주민번호·이메일 모양이 남은 칸</span>
+    </div>
+    <div class="row mt8">
+      <span class="muted small" id="rowInfo"></span>
+      <button class="btn sm" type="button" id="moreRows" hidden>행 더 보기</button>
+    </div>
+  </div>
+
+  <div class="card" id="crossCard">
+    <h2>3) 문장 속 이름도 함께 바꾸기</h2>
+    <p class="muted">토큰화한 값(예: 학생 이름)이 비고·특기사항 같은 다른 열의 문장에 있으면 같은 토큰으로 바꿔요. 긴 값부터 찾아요.</p>
+    <div id="crossStatus"></div>
+    <details class="mt8">
+      <summary><b>직접 추가할 단어</b> (선택) — 성 없이 이름만 쓴 경우, 학교명 등</summary>
+      <p class="muted small">한 줄에 한 단어. 위 목록에 없는 단어를 문장 속에서 찾아 토큰으로 바꿔요.</p>
+      <textarea id="manualWords" class="short" placeholder="예)&#10;하늘이&#10;가상초등학교"></textarea>
+      <div class="row mt6"><label>접두어 <input type="text" id="manualPrefix" value="기타" size="8"></label></div>
+    </details>
+  </div>
+
+  <div class="card" id="warnCard"><h2>4) 확인할 점</h2><div id="warnBody"></div></div>
+
+  <div class="card" id="exportCard">
+    <h2>5) 내보내기</h2>
+    <div id="exportStatus"></div>
+    <h3>① 가명처리한 표 저장</h3>
+    <div class="row">
+      <button class="btn primary" type="button" id="btnXlsx">엑셀(.xlsx)로 저장</button>
+      <button class="btn" type="button" id="btnCsv">CSV로 저장</button>
+    </div>
+    <h3 class="mt16">② AI 채팅에 붙여넣기</h3>
+    <div class="row">
+      <button class="btn primary" type="button" id="btnCopyAll">지시문 + 표(TSV) 복사</button>
+      <button class="btn" type="button" id="btnCopyTsv">표만 복사 (TSV)</button>
+      <button class="btn" type="button" id="btnCopyMd">표만 복사 (마크다운)</button>
+      <button class="btn" type="button" id="btnCopyInstr">지시문만 복사</button>
+    </div>
+    <p class="muted small">AI 채팅창에 지시문과 표를 함께 붙여넣으세요. 아래 지시문은 자동으로 만들어져요.</p>
+    <div class="instr" id="instr"></div>
+    <h3 class="mt16">③ 키 파일 저장 (복원에 꼭 필요)</h3>
+    <div class="banner bad"><b>비밀번호를 잃어버리면 복원할 방법이 없어요.</b> 개발자도, 이 앱도 되살릴 수 없어요. 키 파일과 비밀번호는 따로 안전하게 보관하세요.</div>
+    <div class="row">
+      <label>비밀번호(8자 이상) <input type="password" id="pw1" autocomplete="new-password" size="22"></label>
+      <label>다시 입력 <input type="password" id="pw2" autocomplete="new-password" size="22"></label>
+      <label class="chk small"><input type="checkbox" id="pwShow"> 보이기</label>
+      <button class="btn primary" type="button" id="btnKey">키 파일(.key.json) 저장</button>
+    </div>
+    <div id="keyMsg" class="mt8"></div>
+  </div>
+</section>
+
+<!-- ============================ ③ 복원 ============================ -->
+<section id="p3" hidden>
+  <div class="card">
+    <h2>1) 키 파일 열기</h2>
+    <div class="drop" id="dropKey" tabindex="0" role="button" aria-label="키 파일을 끌어다 놓거나 눌러서 선택">
+      <div class="drop-big">키 파일(.key.json)을 여기에 놓으세요</div>
+      <button class="btn" type="button" id="pickKey">키 파일 선택</button>
+      <input type="file" id="fileKey" accept=".json,.key.json,application/json" hidden>
+    </div>
+    <div id="keyFileInfo" class="muted mt8"></div>
+    <div class="row mt8">
+      <label>비밀번호 <input type="password" id="pwOpen" autocomplete="off" size="24"></label>
+      <button class="btn primary" type="button" id="btnOpenKey">키 열기</button>
+    </div>
+    <div id="openMsg" class="mt8"></div>
+  </div>
+
+  <div class="card">
+    <h2>2) AI 결과 넣기</h2>
+    <p class="muted">AI가 준 글을 붙여넣거나, 파일(.xlsx .csv .txt .md)을 끌어다 놓으세요.</p>
+    <textarea id="aiText" placeholder="여기에 AI 답변을 붙여넣으세요"></textarea>
+    <div class="drop slim" id="dropAi" tabindex="0" role="button">
+      <span>또는 파일을 끌어다 놓기</span>
+      <button class="btn sm" type="button" id="pickAi">파일 선택</button>
+      <input type="file" id="fileAi" accept=".xlsx,.xls,.csv,.txt,.md,.markdown,.tsv" hidden>
+    </div>
+    <div id="aiFileInfo" class="small mt8"></div>
+    <div class="row mt12">
+      <button class="btn primary" type="button" id="btnRestore">원래 값으로 복원하기</button>
+      <label class="chk small"><input type="checkbox" id="fixVariants"> 변형된 토큰(예: <code>[[이름_01]]</code>)도 키와 정확히 대응되면 함께 복원</label>
+    </div>
+  </div>
+
+  <div class="card" id="resultCard" hidden>
+    <h2>3) 복원 결과</h2>
+    <div id="report"></div>
+    <div class="banner warn small">복원된 내용에는 <b>실제 개인정보</b>가 들어 있어요. 저장·복사한 파일은 안전하게 다뤄 주세요.</div>
+    <div id="resultBody" class="mt8"></div>
+    <div class="row mt10" id="resultBtns"></div>
+  </div>
+</section>
+</main>
+</div>
+
+<div id="overlay" class="overlay" hidden></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>__SHEETJS__</script>
+<script>__APP__</script>
+</body>
+</html>
